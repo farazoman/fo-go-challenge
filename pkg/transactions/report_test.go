@@ -12,10 +12,11 @@ var _ = Describe("Report Summary", func() {
 	var (
 		reporter     transactions.Reporter
 		actualReport transactions.Report
+		actualError  error
 	)
 	BeforeEach(func() {
 		reporter = transactions.Reporter{Loader: files.MockLoader{}}
-		actualReport = reporter.Summarize("anyPath")
+		actualReport, _, actualError = reporter.Summarize("anyPath")
 	})
 
 	When("A file with 2 entries in two months is loaded", func() {
@@ -27,6 +28,7 @@ var _ = Describe("Report Summary", func() {
 				"TransactionsPerMonth": Equal(map[string]int{"September": 2, "August": 2}),
 			}
 			Expect(actualReport).Should(MatchAllFields(expectedReport))
+			Expect(actualError).Should(BeNil())
 		})
 	})
 })

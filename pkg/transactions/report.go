@@ -1,12 +1,13 @@
 package transactions
 
 import (
-	"log"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/farazoman/fo-go-challenge/pkg/files"
+	"github.com/farazoman/fo-go-challenge/pkg/notifications"
 )
 
 type Transaction struct {
@@ -26,10 +27,25 @@ type Report struct {
 	AverageCredit        float32
 }
 
+func (r Report) String() string {
+	return fmt.Sprintf(`
+Total Balance: %f
+Transactions Per Month: %v
+Average Debit: %f
+Average Credit: %f`,
+		r.TotalBalance, r.TransactionsPerMonth, r.AverageDebit, r.AverageCredit)
+}
+
 // summarizes a transaction csv
-func (reporter *Reporter) Summarize(sourcePath string) Report {
-	transactionsFile := reporter.Loader.Load(sourcePath)
-	transactions := extract(transactionsFile)
+func (reporter *Reporter) Summarize(sourcePath string) (Report, []Transaction, error) {
+	transactionsFile, err := reporter.Loader.Load(sourcePath)
+	if err != nil {
+		return Report{}, []Transaction{}, err
+	}
+	transactions, err := extract(transactionsFile)
+	if err != nil {
+		return Report{}, transactions, err
+	}
 
 	var totalCredit float32
 	var creditCount int
@@ -47,11 +63,16 @@ func (reporter *Reporter) Summarize(sourcePath string) Report {
 
 		monthDay := strings.Split(t.Date, "/")
 		month, err := strconv.Atoi(monthDay[0])
-		// TODO verify the int value for month is 1-12s
-		if err != nil {
-			log.Fatalf("Transaction row value for date has a non-number value for the month position: %s", t.Date)
 
+		if err != nil {
+			return Report{}, []Transaction{},
+				fmt.Errorf("Transaction row value for date has a non-number value for the month position: %s", t.Date)
 		}
+		if month < 1 || month > 12 {
+			return Report{}, []Transaction{},
+				fmt.Errorf("number for month needs to be between 1 and 12. Value was: %d", month)
+		}
+
 		date := time.Date(2024, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 		monthString := date.Month().String()
 
@@ -63,15 +84,31 @@ func (reporter *Reporter) Summarize(sourcePath string) Report {
 		AverageCredit:        totalCredit / float32(creditCount),
 		AverageDebit:         totalDebit / float32(debitCount),
 		TransactionsPerMonth: perMonth,
-	}
+	}, transactions, nil
 }
 
-func extract(transactionsCsv string) []Transaction {
+func validateHeader(row string) error {
+	headers := strings.Split(row, ",")
+	if strings.ToLower(strings.TrimSpace(headers[0])) != "id" ||
+		strings.ToLower(strings.TrimSpace(headers[1])) != "date" ||
+		strings.ToLower(strings.TrimSpace(headers[2])) != "transaction" {
+		return fmt.Errorf("headers are not valid, should be ID then Date, then Transaction. The header row was %s", row)
+	}
+	return nil
+}
+
+func extract(transactionsCsv string) ([]Transaction, error) {
 	var transactions []Transaction
-	// TODO make this extensible
 	// assume the column order of the CSV is static (always same order)
 	for i, row := range strings.Split(transactionsCsv, "\n") {
-		if i == 0 || strings.TrimSpace(row) == "" {
+		if i == 0 {
+			err := validateHeader(row)
+			if err != nil {
+				return []Transaction{}, err
+			}
+			continue
+		}
+		if strings.TrimSpace(row) == "" {
 			continue
 		}
 
@@ -79,12 +116,12 @@ func extract(transactionsCsv string) []Transaction {
 
 		id, err := strconv.Atoi(strings.TrimSpace(splitRow[0]))
 		if err != nil {
-			log.Fatalf("%s ID value in file is not an int. With error %s", splitRow[0], err)
+			return []Transaction{}, fmt.Errorf("%s ID value in file is not an int. With error %s", splitRow[0], err)
 		}
 
 		amount, err := strconv.ParseFloat(strings.TrimSpace(splitRow[2]), 32)
 		if err != nil {
-			log.Fatalf("%s Amount (Transaction) value in file is not a float", splitRow[2])
+			return []Transaction{}, fmt.Errorf("%s Amount (Transaction) value in file is not a float", splitRow[2])
 		}
 
 		transactions = append(transactions,
@@ -96,5 +133,26 @@ func extract(transactionsCsv string) []Transaction {
 		)
 	}
 
-	return transactions
+	return transactions, nil
+}
+
+func (r *Report) ToEmailParams() map[string]interface{} {
+	params := make(map[string]interface{})
+	params[notifications.TotalBalanceKey] = strconv.FormatFloat(float64(r.TotalBalance), 'f', 2, 32)
+	params[notifications.AverageDebitKey] = strconv.FormatFloat(float64(r.AverageDebit), 'f', 2, 32)
+	params[notifications.AverageCreditKey] = strconv.FormatFloat(float64(r.AverageCredit), 'f', 2, 32)
+
+	allByMonth := make([]map[string]string, len(r.TransactionsPerMonth))
+
+	var i int
+	for month, amount := range r.TransactionsPerMonth {
+		byMonth := make(map[string]string)
+		byMonth[notifications.AmountKey] = strconv.Itoa(amount)
+		byMonth[notifications.MonthKey] = month
+		allByMonth[i] = byMonth
+		i++
+	}
+
+	params[notifications.TransactionsByMonthKey] = allByMonth
+	return params
 }
