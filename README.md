@@ -6,6 +6,7 @@ This challenge processes a transaction file and sends an email to the end user.
 1. golang version 1.23 or greater | https://go.dev/doc/install
 2. install ginkgo, and ensure the executables are accessible via PATH variable | https://onsi.github.io/ginkgo/#installing-ginkgo
 3. run go mod install from root of package
+4. create an account with sendgrid api (https://sendgrid.com/en-us/resource/setting-up-your-email-infrastructure-with-twilio-sendgrid) create an API token and upload it to aws secret manager. Use the name defined in main.tf - the same email template will not be usable without exporting / duplicating. Speak to farazoman@gmail.com for info on how to get a copy
 4. ensure AWS credentials are active at ~/.aws
 
 ### Overview
