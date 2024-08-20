@@ -1,0 +1,8 @@
+sendgrid.env
+
+out/*
+secret
+sendgrid.env
+
+terraform.tfstate.backup
+.terraform
